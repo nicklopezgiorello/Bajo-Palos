@@ -1,122 +1,128 @@
 // ---------- Capa 2: Lógica de estadísticas ----------
-// Funciones puras: reciben datos, devuelven números. No tocan la base ni el DOM.
-// Así se pueden reusar igual el día que cambie de dónde vienen los datos.
+// Funciones puras: no tocan la base de datos ni React. Reciben acciones ya
+// resueltas (categoriaAccionId -> categoría) y devuelven números derivados.
+// Nunca se asume "tiros recibidos" como algo cargado aparte: siempre se
+// deriva de atajada + gol.
 
-// Siempre devolvemos el número absoluto JUNTO con el porcentaje (nunca el % solo).
+const UMBRAL_MINIMO = 3; // menos de esto: se muestra el dato, no se saca conclusión
+const UMBRAL_PATRON = 5; // a partir de esto, un patrón se considera más relevante
+
 export function conteoYPct(n, total) {
-  if (!total) return { n: 0, pct: 0, texto: "0 — 0%" };
-  const pct = Math.round((n / total) * 100);
+  const pct = total ? Math.round((n / total) * 100) : 0;
   return { n, pct, texto: `${n} — ${pct}%` };
 }
 
-// Agrupa acciones por categoría y, dentro de cada categoría, por zona.
-export function resumirAcciones(acciones) {
-  const porCategoria = {};
-  acciones.forEach((a) => {
-    const c = (porCategoria[a.categoriaAccionId] = porCategoria[a.categoriaAccionId] || { total: 0, porZona: {} });
-    c.total += 1;
-    if (a.zonaId) {
-      c.porZona[a.zonaId] = (c.porZona[a.zonaId] || 0) + 1;
-    }
-  });
+// resumen de un conjunto de acciones ya resueltas a su categoría
+export function resumirAcciones(acciones, categoriasPorId) {
+  const porFamilia = {}; // familia -> { total, porZona: {zonaId: n} }
+  const porCategoria = {}; // categoriaAccionId -> n
 
-  const totalAcciones = acciones.length;
-  const atajadas = porCategoria["atajada"]?.total || 0;
-  const golesRecibidos = porCategoria["gol_recibido"]?.total || 0;
-  const tirosRecibidos = porCategoria["tiro_recibido"]?.total || 0;
-  const baseEfectividad = atajadas + golesRecibidos;
+  for (const a of acciones) {
+    const cat = categoriasPorId[a.categoriaAccionId];
+    if (!cat) continue;
+    porCategoria[cat.id] = (porCategoria[cat.id] || 0) + 1;
+    if (!porFamilia[cat.familia]) porFamilia[cat.familia] = { total: 0, porZona: {}, tono: cat.tono };
+    porFamilia[cat.familia].total += 1;
+    if (cat.zonaId) {
+      porFamilia[cat.familia].porZona[cat.zonaId] = (porFamilia[cat.familia].porZona[cat.zonaId] || 0) + 1;
+    }
+  }
+
+  const atajadas = porFamilia.atajada?.total || 0;
+  const golesRecibidos = porFamilia.gol?.total || 0;
+  const tirosRecibidos = atajadas + golesRecibidos;
+  const efectividad = conteoYPct(atajadas, tirosRecibidos);
 
   return {
-    totalAcciones,
+    totalAcciones: acciones.length,
+    porFamilia,
     porCategoria,
     atajadas,
     golesRecibidos,
     tirosRecibidos,
-    baseEfectividad,
-    efectividad: conteoYPct(atajadas, baseEfectividad),
-    golesPct: conteoYPct(golesRecibidos, baseEfectividad),
+    efectividad,
   };
 }
 
-// Mapa de conteos por zona para UNA categoría puntual (para pintar el arco).
-export function porZonaDeCategoria(resumen, categoriaId) {
-  return resumen.porCategoria[categoriaId]?.porZona || {};
-}
+// observaciones automáticas: dato -> patrón -> sugerencia de revisar. Nunca
+// un diagnóstico técnico inventado, y nada de conclusiones fuertes con
+// muestra chica.
+export function generarObservaciones(resumen, zonasPorId) {
+  const obs = [];
 
-// ---------- Observaciones basadas en reglas (sin IA, sin inventar) ----------
-// Umbrales de confianza: con muestra chica mostramos el dato pero no una
-// "observación" con peso. Configurables acá mismo si más adelante se quieren ajustar.
-const UMBRAL_OBSERVACION = 3;
-const UMBRAL_PATRON_FUERTE = 5;
-const CONCENTRACION_MIN_PCT = 50;
+  if (resumen.tirosRecibidos >= UMBRAL_MINIMO) {
+    obs.push({
+      tono: resumen.efectividad.pct >= 60 ? "ok" : resumen.efectividad.pct >= 40 ? "alerta" : "mal",
+      titulo: "Efectividad general",
+      texto: `Efectividad general: ${resumen.efectividad.texto} (sobre ${resumen.tirosRecibidos} tiros recibidos).`,
+    });
+  }
 
-export function generarObservaciones(resumen, categoriasPorId, zonasPorId) {
-  const observaciones = [];
-
-  Object.entries(resumen.porCategoria).forEach(([catId, data]) => {
-    if (data.total < UMBRAL_OBSERVACION) return;
-    const zonasOrdenadas = Object.entries(data.porZona).sort((a, b) => b[1] - a[1]);
-    if (!zonasOrdenadas.length) return;
-    const [zonaTopId, count] = zonasOrdenadas[0];
-    const pct = Math.round((count / data.total) * 100);
-    if (pct < CONCENTRACION_MIN_PCT) return;
-
-    const etiquetaCat = categoriasPorId[catId]?.etiqueta || catId;
-    const etiquetaZona = zonasPorId[zonaTopId]?.etiqueta || zonaTopId;
-    const fuerte = data.total >= UMBRAL_PATRON_FUERTE;
-    const esGol = catId === "gol_recibido";
-
-    observaciones.push({
-      tono: esGol ? "mal" : fuerte ? "alerta" : "ok",
-      texto: `El ${pct}% de "${etiquetaCat}" (${count} de ${data.total}) se concentró en "${etiquetaZona}". ${
-        esGol
-          ? "Conviene revisar esas acciones en video y evaluar el comportamiento técnico ahí."
-          : "Vale la pena tenerlo en cuenta para planificar el entrenamiento."
+  ["gol", "atajada"].forEach((familia) => {
+    const data = resumen.porFamilia[familia];
+    if (!data || data.total < UMBRAL_MINIMO) return;
+    const zonas = Object.entries(data.porZona).sort((a, b) => b[1] - a[1]);
+    if (!zonas.length) return;
+    const [zonaId, n] = zonas[0];
+    const pct = Math.round((n / data.total) * 100);
+    if (pct < 35) return; // no concentrado, no vale la pena resaltarlo
+    const etiquetaFamilia = familia === "gol" ? "goles recibidos" : "atajadas";
+    const fuerte = data.total >= UMBRAL_PATRON;
+    obs.push({
+      tono: familia === "gol" ? "mal" : "ok",
+      titulo: fuerte ? "Patrón detectado" : "Zona a observar",
+      texto: `El ${pct}% de "${etiquetaFamilia}" (${n} de ${data.total}) se concentró en "${zonasPorId[zonaId]?.etiqueta || zonaId}".${
+        familia === "gol" ? " Conviene revisar estas acciones en video y evaluar el comportamiento del arquero ahí." : ""
       }`,
     });
   });
 
-  if (resumen.baseEfectividad >= UMBRAL_OBSERVACION) {
-    observaciones.push({
-      tono: resumen.efectividad.pct >= 60 ? "ok" : resumen.efectividad.pct >= 40 ? "alerta" : "mal",
-      texto: `Efectividad general: ${resumen.efectividad.texto} (sobre ${resumen.baseEfectividad} situaciones resueltas entre atajada y gol recibido).`,
-    });
-  } else if (resumen.baseEfectividad > 0) {
-    observaciones.push({
+  if (resumen.totalAcciones < UMBRAL_MINIMO) {
+    obs.push({
       tono: "alerta",
-      texto: `Todavía hay poca muestra (${resumen.baseEfectividad} situaciones) para sacar una conclusión de efectividad confiable.`,
+      titulo: "Muestra chica",
+      texto: `Todavía hay pocos registros (${resumen.totalAcciones}) para sacar conclusiones confiables. Los números de arriba son reales, pero conviene esperar más partidos/entrenamientos.`,
     });
   }
 
-  return observaciones;
+  return obs;
 }
 
-// ---------- Comparación temporal: primeros N partidos vs últimos N ----------
-export function compararPeriodos(partidosOrdenadosPorFecha, accionesPorPartido, categoriaId, zonaId, n = 5) {
-  if (partidosOrdenadosPorFecha.length < 2) return null;
-  const cantidad = Math.min(n, Math.floor(partidosOrdenadosPorFecha.length / 2));
-  if (cantidad < 1) return null;
+// compara dos conjuntos de acciones (ej. semana 1 vs semana 2) para una
+// familia puntual (ej. "gol") y devuelve la diferencia en puntos porcentuales
+export function compararConjuntos(accionesA, accionesB, categoriasPorId, familia) {
+  const rA = resumirAcciones(accionesA, categoriasPorId);
+  const rB = resumirAcciones(accionesB, categoriasPorId);
+  const dA = rA.porFamilia[familia];
+  const dB = rB.porFamilia[familia];
+  if (!dA || !dB || dA.total < UMBRAL_MINIMO || dB.total < UMBRAL_MINIMO) return null;
+  const pctA = Math.round((dA.total / rA.totalAcciones) * 100);
+  const pctB = Math.round((dB.total / rB.totalAcciones) * 100);
+  return { pctA, pctB, diferencia: pctB - pctA };
+}
 
-  const primeros = partidosOrdenadosPorFecha.slice(0, cantidad);
-  const ultimos = partidosOrdenadosPorFecha.slice(-cantidad);
+// atributos derivados para el panel de comparación entre jugadores. Cada
+// atributo declara la muestra mínima que necesita: si no la alcanza, se
+// muestra null (N/D en la interfaz), nunca un número inventado.
+export function calcularAtributos(acciones, categoriasPorId) {
+  const r = resumirAcciones(acciones, categoriasPorId);
+  const pctFamilia = (familia, base) => {
+    const d = r.porFamilia[familia];
+    if (!d || base < UMBRAL_MINIMO) return null;
+    return Math.round((d.total / base) * 100);
+  };
 
-  function pctEnGrupo(grupo) {
-    let total = 0;
-    let enZona = 0;
-    grupo.forEach((p) => {
-      const acciones = accionesPorPartido[p.id] || [];
-      acciones.forEach((a) => {
-        if (a.categoriaAccionId !== categoriaId) return;
-        total += 1;
-        if (!zonaId || a.zonaId === zonaId) enZona += 1;
-      });
-    });
-    return conteoYPct(enZona, total);
-  }
+  const salidasTotal = (r.porFamilia.salida_correcta?.total || 0) + (r.porFamilia.salida_incorrecta?.total || 0);
 
   return {
-    cantidad,
-    primeros: pctEnGrupo(primeros),
-    ultimos: pctEnGrupo(ultimos),
+    Atajadas: r.tirosRecibidos >= UMBRAL_MINIMO ? r.efectividad.pct : null,
+    Caídas: r.porFamilia.caida?.total >= UMBRAL_MINIMO ? Math.min(100, r.porFamilia.caida.total * 8) : null,
+    Cruces: r.porFamilia.cruz?.total >= UMBRAL_MINIMO ? Math.min(100, r.porFamilia.cruz.total * 10) : null,
+    Salidas:
+      salidasTotal >= UMBRAL_MINIMO
+        ? Math.round(((r.porFamilia.salida_correcta?.total || 0) / salidasTotal) * 100)
+        : null,
+    Saques: r.porFamilia.saque?.total >= UMBRAL_MINIMO ? Math.min(100, r.porFamilia.saque.total * 6) : null,
+    Volumen: Math.min(100, r.totalAcciones * 3),
   };
 }
