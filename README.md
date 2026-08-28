@@ -85,3 +85,20 @@ npx vercel --prod
 - Video/nota asociado a una acción puntual (hoy el video es por sesión).
 - Vista de escritorio con panel lateral de carpetas (hoy funciona bien en
   ambos tamaños pero no hay un layout específico distinto para desktop).
+
+## Rediseño: modo Captura vs modo Análisis (última actualización)
+
+Bajo Palos ahora separa claramente dos experiencias:
+
+- **⚡ Captura** (pestaña propia, resaltada en verde): pantalla de tablero
+  táctil. Header grande con el nombre del jugador y "● CAPTURA ACTIVA",
+  botones grandes agrupados por bloque (Atajadas/Goles se muestran como una
+  grilla con forma de arco; Saques usa contadores −/+ en vez de un botón
+  por tipo), y una barra inferior siempre visible con las últimas acciones
+  y "↩ Deshacer".
+- **Perfil / Comparar / Configuración**: modo análisis, sin cambios de
+  fondo respecto de antes — ahí sigue viviendo la administración de la
+  botonera (agregar/renombrar/desactivar categorías y zonas).
+
+La botonera de Configuración sigue siendo la fuente de verdad: lo que
+activás/desactivás ahí es exactamente lo que aparece en Captura.

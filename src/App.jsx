@@ -70,8 +70,14 @@ export default function App() {
           </div>
         </div>
         <nav className="tabs">
+          <button
+            className={"tab tab--captura" + (view === "registrar" ? " tab--active" : "")}
+            onClick={() => setView("registrar")}
+          >
+            ⚡ Captura
+          </button>
+          <span className="tabs__divisor" />
           {[
-            ["registrar", "Registrar"],
             ["perfil", "Perfil"],
             ["comparar", "Comparar"],
             ["config", "Configuración"],
@@ -96,6 +102,7 @@ export default function App() {
           ) : (
             <RegistrarView
               jugadorId={jugadorId}
+              nombreJugador={arqueros.find((a) => a.id === jugadorId)?.nombre || ""}
               rivales={rivales}
               categorias={categorias}
               categoriasPorId={categoriasPorId}
@@ -142,23 +149,27 @@ function SinJugador({ arqueros, setJugadorId }) {
 function JugadorTabs({ arqueros, jugadorId, setJugadorId }) {
   if (arqueros.length === 0) return null;
   return (
-    <div className="jugador-tabs">
-      {arqueros.map((a) => (
-        <button
-          key={a.id}
-          className={"jugador-tab" + (jugadorId === a.id ? " jugador-tab--active" : "")}
-          onClick={() => setJugadorId(a.id)}
-        >
-          {a.nombre}
-        </button>
-      ))}
+    <div className="jugador-cards">
+      {arqueros.map((a) => {
+        const activo = jugadorId === a.id;
+        return (
+          <button key={a.id} className={"jugador-card" + (activo ? " jugador-card--active" : "")} onClick={() => setJugadorId(a.id)}>
+            <span className="jugador-card__nombre">{a.nombre}</span>
+            {activo && (
+              <span className="jugador-card__estado">
+                <span className="dot-activo" /> ACTIVO
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 // ---------- Vista: Registrar (botonera rápida, mobile-first) ----------
 
-function RegistrarView({ jugadorId, rivales, categorias, categoriasPorId, zonasPorId, rivalesPorId }) {
+function RegistrarView({ jugadorId, nombreJugador, rivales, categorias, categoriasPorId, zonasPorId, rivalesPorId }) {
   const [toast, setToast] = useState(null);
   const [bloqueActivo, setBloqueActivo] = useState(null);
 
@@ -202,7 +213,12 @@ function RegistrarView({ jugadorId, rivales, categorias, categoriasPorId, zonasP
   async function handleTap(categoriaId) {
     await crearAccion({ jugadorId, sesionId, categoriaAccionId: categoriaId });
     setToast(categoriasPorId[categoriaId]?.etiqueta || "Cargado");
-    setTimeout(() => setToast(null), 1200);
+    setTimeout(() => setToast(null), 1000);
+  }
+
+  async function handleDecrement(categoriaId) {
+    const ultima = acciones.find((a) => a.categoriaAccionId === categoriaId);
+    if (ultima) await borrarAccion(ultima.id);
   }
 
   async function handleDeshacer() {
@@ -216,57 +232,46 @@ function RegistrarView({ jugadorId, rivales, categorias, categoriasPorId, zonasP
   }
 
   if (!sesion || sesion.estado === "finalizada") {
-    return <NuevaSesionForm jugadorId={jugadorId} rivales={rivales} onCreada={(id) => setSesionId(id)} />;
+    return <NuevaSesionForm jugadorId={jugadorId} nombreJugador={nombreJugador} rivales={rivales} onCreada={(id) => setSesionId(id)} />;
   }
 
+  const categoriasBloque = categorias.filter((c) => c.grupo === bloqueActivo);
+  const esGrillaArco = ["Atajadas", "Goles"].includes(bloqueActivo);
+  const conZona = esGrillaArco ? categoriasBloque.filter((c) => zonasPorId[c.zonaId]?.grupo === "arco") : [];
+  const sinZona = esGrillaArco ? categoriasBloque.filter((c) => !zonasPorId[c.zonaId] || zonasPorId[c.zonaId].grupo !== "arco") : categoriasBloque;
+  conZona.sort((a, b) => (zonasPorId[a.zonaId]?.orden ?? 0) - (zonasPorId[b.zonaId]?.orden ?? 0));
+
   return (
-    <div>
-      <div className="card sesion-header">
-        <div>
-          <span className="sesion-header__tipo">{sesion.tipo === "partido" ? "🔴 PARTIDO" : "🟢 ENTRENAMIENTO"}</span>
-          <div className="muted small">
-            {sesion.fecha} {sesion.rivalId ? `· vs ${rivalesPorId[sesion.rivalId]?.nombre || ""}` : ""}
-          </div>
+    <div className="captura">
+      <div className="captura-hero">
+        <span className="captura-hero__nombre">{nombreJugador}</span>
+        <span className="captura-hero__estado">
+          <span className="dot-activo" /> CAPTURA ACTIVA
+        </span>
+        <div className="captura-hero__sesion">
+          <span>
+            {sesion.tipo === "partido" ? "⚽" : "🏋️"}{" "}
+            {sesion.tipo === "partido" ? rivalesPorId[sesion.rivalId]?.nombre || "Partido" : "Entrenamiento"}
+          </span>
+          <span className="muted small">{sesion.fecha}</span>
         </div>
-        <button className="btn-secondary" onClick={handleFinalizar}>
+        <button className="captura-hero__finalizar" onClick={handleFinalizar}>
           Finalizar sesión
         </button>
       </div>
 
-      <div className="card mini-resumen-card">
-        <div className="mini-resumen">
-          <div>
-            <span className="mini-resumen__val">{resumen.tirosRecibidos}</span>
-            <span className="small muted">tiros recibidos</span>
-          </div>
-          <div>
-            <span className="mini-resumen__val" style={{ color: "var(--accent-goal)" }}>
-              {resumen.golesRecibidos}
-            </span>
-            <span className="small muted">goles recibidos</span>
-          </div>
-          <div>
-            <span className="mini-resumen__val" style={{ color: "var(--accent-save)" }}>
-              {resumen.atajadas}
-            </span>
-            <span className="small muted">atajadas</span>
-          </div>
-          <div>
-            <span className="mini-resumen__val">{resumen.tirosRecibidos ? `${resumen.efectividad.pct}%` : "—"}</span>
-            <span className="small muted">efectividad</span>
-          </div>
-        </div>
+      <div className="captura-mini-resumen">
+        <span>{resumen.tirosRecibidos} tiros</span>
+        <span style={{ color: "var(--accent-goal)" }}>{resumen.golesRecibidos} goles</span>
+        <span style={{ color: "var(--accent-save)" }}>{resumen.atajadas} atajadas</span>
+        <span>{resumen.tirosRecibidos ? `${resumen.efectividad.pct}%` : "—"} efectividad</span>
       </div>
-
-      <button className="btn-deshacer" onClick={handleDeshacer} disabled={!acciones.length}>
-        ↩ Deshacer última acción
-      </button>
 
       <div className="bloque-tabs">
         {bloques.map((b) => (
           <button
             key={b}
-            className={"chip" + (bloqueActivo === b ? " chip--active" : "")}
+            className={"bloque-tab" + (bloqueActivo === b ? " bloque-tab--active" : "")}
             onClick={() => setBloqueActivo(b)}
           >
             {b}
@@ -274,30 +279,62 @@ function RegistrarView({ jugadorId, rivales, categorias, categoriasPorId, zonasP
         ))}
       </div>
 
-      <div className="accion-grid">
-        {categorias
-          .filter((c) => c.grupo === bloqueActivo)
-          .map((c) => (
+      {bloqueActivo === "Saques" ? (
+        <div className="contador-lista">
+          {categoriasBloque.map((c) => (
+            <Contador
+              key={c.id}
+              etiqueta={c.etiqueta}
+              valor={resumen.porCategoria[c.id] || 0}
+              onSumar={() => handleTap(c.id)}
+              onRestar={() => handleDecrement(c.id)}
+            />
+          ))}
+        </div>
+      ) : esGrillaArco && conZona.length > 0 ? (
+        <>
+          <div className="arco-grid">
+            {conZona.map((c) => (
+              <button key={c.id} className={"arco-btn arco-btn--" + c.tono} onClick={() => handleTap(c.id)}>
+                {abreviarZona(zonasPorId[c.zonaId]?.etiqueta)}
+                {resumen.porCategoria[c.id] ? <span className="accion-btn__count">{resumen.porCategoria[c.id]}</span> : null}
+              </button>
+            ))}
+          </div>
+          {sinZona.length > 0 && (
+            <div className="accion-grid accion-grid--especiales">
+              {sinZona.map((c) => (
+                <button key={c.id} className={"accion-btn accion-btn--" + c.tono} onClick={() => handleTap(c.id)}>
+                  {c.etiqueta}
+                  {resumen.porCategoria[c.id] ? <span className="accion-btn__count">{resumen.porCategoria[c.id]}</span> : null}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="accion-grid">
+          {categoriasBloque.map((c) => (
             <button key={c.id} className={"accion-btn accion-btn--" + c.tono} onClick={() => handleTap(c.id)}>
               {c.etiqueta}
               {resumen.porCategoria[c.id] ? <span className="accion-btn__count">{resumen.porCategoria[c.id]}</span> : null}
             </button>
           ))}
-      </div>
-
-      <div className="card">
-        <h3>Últimas acciones cargadas</h3>
-        <div className="lista">
-          {acciones.slice(0, 6).map((a) => (
-            <div key={a.id} className="lista-item">
-              <span className="small">{categoriasPorId[a.categoriaAccionId]?.etiqueta || "—"}</span>
-              <button className="btn-ghost" onClick={() => borrarAccion(a.id)} title="Borrar">
-                ✕
-              </button>
-            </div>
-          ))}
-          {acciones.length === 0 && <span className="muted small">Todavía no cargaste nada en esta sesión.</span>}
         </div>
+      )}
+
+      <div className="captura-footer">
+        <div className="captura-footer__ultimas">
+          {acciones.slice(0, 4).map((a) => (
+            <button key={a.id} className="ultima-chip" onClick={() => borrarAccion(a.id)} title="Tocar para borrar">
+              {categoriasPorId[a.categoriaAccionId]?.etiqueta || "—"} ✕
+            </button>
+          ))}
+          {acciones.length === 0 && <span className="muted small">Sin acciones todavía</span>}
+        </div>
+        <button className="captura-footer__deshacer" onClick={handleDeshacer} disabled={!acciones.length}>
+          ↩ Deshacer
+        </button>
       </div>
 
       {toast && <div className="toast">{toast}</div>}
@@ -305,7 +342,29 @@ function RegistrarView({ jugadorId, rivales, categorias, categoriasPorId, zonasP
   );
 }
 
-function NuevaSesionForm({ jugadorId, rivales, onCreada }) {
+function abreviarZona(etq) {
+  if (!etq) return "";
+  return etq.replace(/izquierda/i, "IZQ").replace(/derecha/i, "DER").toUpperCase();
+}
+
+function Contador({ etiqueta, valor, onSumar, onRestar }) {
+  return (
+    <div className="contador-row">
+      <span className="contador-row__etiqueta">{etiqueta}</span>
+      <div className="contador-row__controles">
+        <button className="contador-btn" onClick={onRestar} disabled={!valor}>
+          −
+        </button>
+        <span className="contador-row__valor">{valor}</span>
+        <button className="contador-btn contador-btn--sumar" onClick={onSumar}>
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NuevaSesionForm({ jugadorId, nombreJugador, rivales, onCreada }) {
   const [tipo, setTipo] = useState("partido");
   const [fecha, setFecha] = useState(todayISO());
   const [rivalNuevo, setRivalNuevo] = useState("");
@@ -321,45 +380,50 @@ function NuevaSesionForm({ jugadorId, rivales, onCreada }) {
   }
 
   return (
-    <div className="card">
-      <h3>Nueva sesión</h3>
-      <div className="segmented">
-        <button className={"segmented__opt" + (tipo === "partido" ? " segmented__opt--active" : "")} onClick={() => setTipo("partido")}>
-          🔴 Partido
-        </button>
-        <button
-          className={"segmented__opt" + (tipo === "entrenamiento" ? " segmented__opt--active" : "")}
-          onClick={() => setTipo("entrenamiento")}
-        >
-          🟢 Entrenamiento
-        </button>
+    <div className="captura">
+      <div className="captura-hero captura-hero--inactiva">
+        <span className="captura-hero__nombre">{nombreJugador}</span>
+        <span className="captura-hero__estado captura-hero__estado--inactiva">⚡ CAPTURA RÁPIDA</span>
       </div>
-      <div className="form-grid" style={{ marginTop: 12 }}>
-        <label className="field">
-          <span>Fecha</span>
-          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
-        </label>
-        {tipo === "partido" && (
+      <div className="card">
+        <div className="segmented">
+          <button className={"segmented__opt" + (tipo === "partido" ? " segmented__opt--active" : "")} onClick={() => setTipo("partido")}>
+            ⚽ Partido
+          </button>
+          <button
+            className={"segmented__opt" + (tipo === "entrenamiento" ? " segmented__opt--active" : "")}
+            onClick={() => setTipo("entrenamiento")}
+          >
+            🏋️ Entrenamiento
+          </button>
+        </div>
+        <div className="form-grid" style={{ marginTop: 12 }}>
           <label className="field">
-            <span>Rival</span>
-            <input
-              type="text"
-              list="rivales-lista"
-              placeholder="ej. Villa Luro Norte"
-              value={rivalNuevo}
-              onChange={(e) => setRivalNuevo(e.target.value)}
-            />
-            <datalist id="rivales-lista">
-              {rivales.map((r) => (
-                <option key={r.id} value={r.nombre} />
-              ))}
-            </datalist>
+            <span>Fecha</span>
+            <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
           </label>
-        )}
+          {tipo === "partido" && (
+            <label className="field">
+              <span>Rival</span>
+              <input
+                type="text"
+                list="rivales-lista"
+                placeholder="ej. Villa Luro Norte"
+                value={rivalNuevo}
+                onChange={(e) => setRivalNuevo(e.target.value)}
+              />
+              <datalist id="rivales-lista">
+                {rivales.map((r) => (
+                  <option key={r.id} value={r.nombre} />
+                ))}
+              </datalist>
+            </label>
+          )}
+        </div>
+        <button className="btn-primary" onClick={handleCrear}>
+          Iniciar captura
+        </button>
       </div>
-      <button className="btn-primary" onClick={handleCrear}>
-        Empezar
-      </button>
     </div>
   );
 }
@@ -1184,4 +1248,118 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-save
 .radar-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
 .radar-dot--a { background: var(--accent-save); }
 .radar-dot--b { background: var(--accent-goal); }
+
+/* ================================================================
+   MODO CAPTURA — visualmente distinto del modo análisis: máxima
+   superficie táctil, mínima lectura, identificación del jugador
+   siempre a la vista.
+   ================================================================ */
+
+.tab--captura { background: rgba(79,176,160,0.12); border: 1px solid var(--accent-save); color: var(--accent-save); }
+.tab--captura.tab--active { background: var(--accent-save); color: #08201B; }
+.tabs__divisor { width: 1px; align-self: stretch; background: #2A4432; margin: 2px 2px; }
+
+/* pestañas grandes de jugador, estilo tarjeta */
+.jugador-cards { display: flex; gap: 8px; flex-wrap: wrap; }
+.jugador-card {
+  font-family: 'Oswald', sans-serif; background: var(--panel); border: 2px solid #2A4432; color: var(--chalk);
+  padding: 12px 22px; border-radius: 14px; font-size: 15px; font-weight: 700; letter-spacing: 0.03em; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 120px;
+}
+.jugador-card:hover { border-color: var(--accent-save); }
+.jugador-card--active { border-color: var(--accent-save); background: rgba(79,176,160,0.12); box-shadow: 0 0 0 1px var(--accent-save); }
+.jugador-card__estado {
+  font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; color: var(--accent-save);
+  display: flex; align-items: center; gap: 4px;
+}
+.dot-activo { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-save); display: inline-block; box-shadow: 0 0 6px var(--accent-save); }
+
+.captura { display: flex; flex-direction: column; }
+
+.captura-hero {
+  background: linear-gradient(135deg, #17301f, var(--panel));
+  border: 1px solid var(--accent-save); border-radius: 16px; padding: 22px 20px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 14px; position: relative;
+}
+.captura-hero--inactiva { border-color: #2A4432; background: var(--panel); }
+.captura-hero__nombre { font-family: 'Oswald', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: 0.03em; }
+.captura-hero__estado {
+  font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.1em; color: var(--accent-save);
+  display: flex; align-items: center; gap: 6px;
+}
+.captura-hero__estado--inactiva { color: var(--accent-warn); }
+.captura-hero__sesion { display: flex; gap: 10px; align-items: baseline; font-size: 15px; margin-top: 4px; }
+.captura-hero__finalizar {
+  position: absolute; top: 14px; right: 14px; background: transparent; border: 1px solid #2A4432; color: var(--muted);
+  border-radius: 8px; padding: 6px 12px; font-size: 11px; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif;
+}
+.captura-hero__finalizar:hover { border-color: var(--accent-goal); color: var(--accent-goal); }
+
+.captura-mini-resumen {
+  display: flex; justify-content: space-around; flex-wrap: wrap; gap: 6px; font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px; color: var(--chalk); background: var(--panel); border: 1px solid #22392A; border-radius: 10px;
+  padding: 8px 10px; margin-bottom: 14px;
+}
+
+.bloque-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.bloque-tab {
+  font-family: 'Oswald', sans-serif; background: var(--panel); border: 1px solid #2A4432; color: var(--chalk);
+  padding: 10px 18px; border-radius: 999px; font-size: 13.5px; font-weight: 600; cursor: pointer; letter-spacing: 0.02em;
+}
+.bloque-tab--active { background: var(--accent-save); color: #08201B; border-color: var(--accent-save); }
+
+/* grilla con forma de arco para Atajadas / Goles */
+.arco-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px; border: 3px solid var(--chalk);
+  border-bottom: none; border-radius: 6px 6px 0 0; background: rgba(255,255,255,0.02); margin-bottom: 10px;
+}
+.arco-btn {
+  position: relative; font-family: 'Oswald', sans-serif; background: var(--panel); border: 1px solid #2A4432;
+  color: var(--chalk); border-radius: 10px; padding: 22px 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.02em; min-height: 64px;
+}
+.arco-btn:active { transform: scale(0.96); }
+.arco-btn--positivo:hover, .arco-btn--positivo:active { border-color: var(--accent-save); background: rgba(79,176,160,0.15); }
+.arco-btn--gol:hover, .arco-btn--gol:active { border-color: var(--accent-goal); background: rgba(193,80,46,0.15); }
+.accion-grid--especiales { margin-top: 4px; }
+
+/* contadores +/- para acciones de volumen (saques, etc.) */
+.contador-lista { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.contador-row {
+  display: flex; justify-content: space-between; align-items: center; background: var(--panel);
+  border: 1px solid #2A4432; border-radius: 12px; padding: 10px 14px;
+}
+.contador-row__etiqueta { font-size: 14px; font-weight: 500; }
+.contador-row__controles { display: flex; align-items: center; gap: 14px; }
+.contador-btn {
+  width: 44px; height: 44px; border-radius: 10px; border: 1px solid #2A4432; background: #0C1610; color: var(--chalk);
+  font-size: 22px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.contador-btn:disabled { opacity: 0.3; cursor: default; }
+.contador-btn--sumar { border-color: var(--accent-save); color: var(--accent-save); }
+.contador-btn--sumar:hover { background: var(--accent-save); color: #08201B; }
+.contador-row__valor { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 600; min-width: 24px; text-align: center; }
+
+/* pie fijo de la captura: últimas acciones + deshacer, siempre accesible */
+.captura-footer {
+  position: sticky; bottom: 8px; display: flex; align-items: center; gap: 10px; background: var(--panel);
+  border: 1px solid #2A4432; border-radius: 12px; padding: 8px 10px; margin-top: 6px;
+}
+.captura-footer__ultimas { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; overflow: hidden; }
+.ultima-chip {
+  font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; background: #0C1610; border: 1px solid #2A4432;
+  color: var(--muted); padding: 4px 8px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+}
+.ultima-chip:hover { border-color: var(--accent-goal); color: var(--accent-goal); }
+.captura-footer__deshacer {
+  font-family: 'Oswald', sans-serif; background: var(--accent-warn); color: #2A1F03; border: none; border-radius: 10px;
+  padding: 10px 16px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+.captura-footer__deshacer:disabled { opacity: 0.35; cursor: default; }
+
+@media (max-width: 480px) {
+  .captura-hero__nombre { font-size: 24px; }
+  .arco-btn { padding: 18px 4px; font-size: 11.5px; min-height: 56px; }
+  .jugador-card { padding: 10px 16px; min-width: 100px; }
+}
 `;
